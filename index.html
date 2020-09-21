@@ -34,7 +34,8 @@
 
     var width = 25;
     var height = 60;
-    var video = document.getElementById("videoInput"); // video is the id of video tag
+    var video = document.getElementById("videoInput");
+    var mirror = document.getElementById("videoModified");
     var audio = new Audio('alarm.mp3');
     audio.loop = true;
     var alarm = false;
@@ -43,8 +44,6 @@
         if(element.checked) {
             navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                 .then(function(stream) {
-                    stream.getTracks().forEach(track => video.width =
-                        Math.round(track.getSettings().aspectRatio * video.height));
                     video.srcObject = stream;
                     video.play();
 
@@ -70,75 +69,81 @@
         //let output = document.getElementById("canvasOutput"); // video is the id of video tag
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
             .then(function(stream) {
-                video.srcObject = stream;
-                video.play();
+                stream.getTracks().forEach(track => {
+                    video.width = Math.round(track.getSettings().aspectRatio * video.height);
+                    //video.getContext('2d').canvas.width = 100;
+                        /*Math.round(track.getSettings().aspectRatio * video.height);*/
+                    video.srcObject = stream;
+                    video.play();
+                    mirror.width = video.width;
+                    let rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
+                                            width, height);
+                    let p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
+                    let p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
+                    let src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+                    let crop = new cv.Mat(rect.height, rect.width, cv.CV_8UC4);
+                    let hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
+                    let mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+                    let mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+                    let dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+                    let cap = new cv.VideoCapture(video);
+                    let lower1 = [0, 50, 50, 0];
+                    let higher1 = [10, 255, 255, 255];
+                    let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
+                    let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
+                    let lower2 = [170, 50, 50, 0];
+                    let higher2 = [180, 255, 255, 255];
+                    let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
+                    let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
+                    let white = new cv.Scalar(255,255,255,255);
+                    let redpix = 0;
+                    
+                    const FPS = 30;
+                    
+                    function processVideo() {
+                        try {
+                            let begin = Date.now();
+                            // start processing.
+                            cap.read(src);
+                            crop = src.roi(rect);
+                            cv.cvtColor(crop, hsv, cv.COLOR_RGB2HSV);
+                            cv.inRange(hsv, low1, high1, mask1);
+                            cv.inRange(hsv, low2, high2, mask2);
+                            cv.bitwise_or(mask1, mask2, dst);
+                            cv.rectangle(src, p0, p1, white);
+                            cv.flip(src, src, 1);
+                            cv.imshow('videoModified', src);
+                            //cv.imshow('canvasOutput', dst);
+                            redpix = cv.countNonZero(dst);
+                            if(redpix > 5) {
+                                if(!alarm) {
+                                  document.getElementById("alert").innerHTML = "Red signal detected";
+                                  audio.play();
+                                  alarm = true;
+                                }
+                            } else {
+                                if(alarm) {
+                                    document.getElementById("alert").innerHTML = "Nothing to report";
+                                    audio.pause();
+                                    audio.currentTime = 0;
+                                    alarm = false;
+                                }
+                            }
+
+                            // schedule the next one.
+                            let delay = 1000/FPS - (Date.now() - begin);
+                            setTimeout(processVideo, delay);
+                        } catch (err) {
+                            console.log(err);
+                        }
+                    };
+                    // schedule the first one.
+                    setTimeout(processVideo, 0);
+                });
             })
             .catch(function(err) {
                 console.log("An error occurred! " + err);
             });
-        let rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
-                                width, height);
-        let p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
-        let p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
-        let src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
-        let crop = new cv.Mat(rect.height, rect.width, cv.CV_8UC4);
-        let hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
-        let mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        let mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        let dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        let cap = new cv.VideoCapture(video);
-        let lower1 = [0, 50, 50, 0];
-        let higher1 = [10, 255, 255, 255];
-        let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
-        let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
-        let lower2 = [170, 50, 50, 0];
-        let higher2 = [180, 255, 255, 255];
-        let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
-        let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
-        let white = new cv.Scalar(255,255,255,255);
-        let redpix = 0;
-        
-        const FPS = 30;
-        
-        function processVideo() {
-            try {
-                let begin = Date.now();
-                // start processing.
-                cap.read(src);
-                crop = src.roi(rect);
-                cv.cvtColor(crop, hsv, cv.COLOR_RGB2HSV);
-                cv.inRange(hsv, low1, high1, mask1);
-                cv.inRange(hsv, low2, high2, mask2);
-                cv.bitwise_or(mask1, mask2, dst);
-                cv.rectangle(src, p0, p1, white);
-                cv.flip(src, src, 1);
-                cv.imshow('videoModified', src);
-                //cv.imshow('canvasOutput', dst);
-                redpix = cv.countNonZero(dst);
-                if(redpix > 5) {
-                    if(!alarm) {
-                      document.getElementById("alert").innerHTML = "Red signal detected";
-                      audio.play();
-                      alarm = true;
-                    }
-                } else {
-                    if(alarm) {
-                        document.getElementById("alert").innerHTML = "Nothing to report";
-                        audio.pause();
-                        audio.currentTime = 0;
-                        alarm = false;
-                    }
-                }
-
-                // schedule the next one.
-                let delay = 1000/FPS - (Date.now() - begin);
-                setTimeout(processVideo, delay);
-            } catch (err) {
-                console.log(err);
-            }
-        };
-        // schedule the first one.
-        setTimeout(processVideo, 0);
 
 
 
