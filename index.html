@@ -70,12 +70,13 @@
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
             .then(function(stream) {
                 stream.getTracks().forEach(track => {
-                    video.width = Math.round(track.getSettings().aspectRatio * video.height);
+                    //video.width = Math.round(track.getSettings().aspectRatio * video.height);
+                    //console.log(Math.round(track.getSettings().aspectRatio * video.height));
                     //video.getContext('2d').canvas.width = 100;
                         /*Math.round(track.getSettings().aspectRatio * video.height);*/
                     video.srcObject = stream;
                     video.play();
-                    mirror.width = video.width;
+                    //mirror.width = video.width;
                     let rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
                                             width, height);
                     let p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
