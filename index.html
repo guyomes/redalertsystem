@@ -13,18 +13,18 @@
 <body>
   <h2>Red Alert System</h2>
   <div class="custom-control custom-switch">
-    <input type="checkbox" checked="true" class="custom-control-input" onchange="update_status(this);" id="customSwitch1">
-    <label class="custom-control-label" id="status" for="customSwitch1">Deploying antenna...</label>
+    <input type="checkbox" disabled class="custom-control-input" onchange="update_status(this);" id="toggle">
+    <label class="custom-control-label" id="status" for="toggle">Deploying antenna...</label>
   </div>
   <div>
   <div class="inputoutput" style="display: none">
-    <video id="videoInput" width="320" height="240" playsinline=true></video>
+    <video id="videoInput" height="240" playsinline=true></video>
     <div class="caption">Raw video</div>
   </div>
   <div class="inputoutput">
-    <canvas id="videoModified" width="320" height="240"></canvas>
+    <canvas id="videoModified"></canvas>
   </div>
-  <p id="alert">Nothing to report</p>
+  <p id="alert" style="visibility: hidden">Nothing to report</p>
   </div>
 </body>
 
@@ -40,13 +40,31 @@
     audio.loop = true;
     var alarm = false;
 
+    var white = new cv.Scalar(255,255,255,255);
+    var rect = null;
+    var p0 = null;
+    var p1 = null;
+    var src = null;
+    var crop = null;
+    var hsv = null;
+    var mask1 = null;
+    var mask2 = null;
+    var dst = null;
+    var cap = null;
+    var low1 = null;
+    var high1 = null;
+    var low2 = null;
+    var high2 = null;
+    var redpix = null;
+    const FPS = 30;
+        
+
     function update_status(element) {
         if(element.checked) {
             navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                 .then(function(stream) {
                     video.srcObject = stream;
                     video.play();
-
                 })
                 .catch(function(err) {
                     console.log("An error occurred! " + err);
@@ -59,13 +77,82 @@
             audio.pause();
             audio.currentTime = 0;
             alarm = false;
+            clearTimeout();
             document.getElementById('status').innerHTML = 'Antenna inactive';
         }
     }
 
-    cv['onRuntimeInitialized'] = () => {
-        document.getElementById('status').innerHTML = 'Antenna active';
+    function processVideo() {
+        try {
+            let begin = Date.now();
+            // start processing.
+            cap.read(src);
+            let crop = src.roi(rect);
+            cv.cvtColor(crop, hsv, cv.COLOR_RGB2HSV);
+            cv.inRange(hsv, low1, high1, mask1);
+            cv.inRange(hsv, low2, high2, mask2);
+            cv.bitwise_or(mask1, mask2, dst);
+            cv.rectangle(src, p0, p1, white);
+            cv.flip(src, src, 1);
+            cv.imshow('videoModified', src);
+            //cv.imshow('canvasOutput', dst);
+            redpix = cv.countNonZero(dst);
+            if(redpix > 5) {
+                if(!alarm) {
+                  document.getElementById("alert").innerHTML = "Red signal detected";
+                  audio.play();
+                  alarm = true;
+                }
+            } else {
+                if(alarm) {
+                    document.getElementById("alert").innerHTML = "Nothing to report";
+                    audio.pause();
+                    audio.currentTime = 0;
+                    alarm = false;
+                }
+            }
 
+            // schedule the next one.
+            let delay = 1000/FPS - (Date.now() - begin);
+            setTimeout(processVideo, delay);
+        } catch (err) {
+            console.log(err);
+        }
+    };
+
+    video.onloadedmetadata = (event) => {
+        document.getElementById('toggle').disabled = false;
+        document.getElementById('toggle').checked = true;
+        document.getElementById('status').innerHTML = 'Antenna active';
+        document.getElementById("alert").style.visibility = "visible";
+        video.width = Math.round(video.height * video.videoWidth/video.videoHeight);
+        mirror.height = video.height;
+        mirror.width = video.width;
+        let lower1 = [0, 50, 50, 0];
+        let higher1 = [10, 255, 255, 255];
+        let lower2 = [170, 50, 50, 0];
+        let higher2 = [180, 255, 255, 255];
+        p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
+        p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
+        rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
+                                width, height);
+        src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+        hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
+        mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+        mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+        dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+        cap = new cv.VideoCapture(video);
+        low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
+        high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
+        low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
+        high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
+        redpix = 0;
+        
+        // schedule the first one.
+        setTimeout(processVideo, 0);
+    };
+
+    cv['onRuntimeInitialized'] = () => {
         //let output = document.getElementById("canvasOutput"); // video is the id of video tag
         navigator.mediaDevices.getUserMedia({ video: true, audio: false })
             .then(function(stream) {
@@ -76,70 +163,6 @@
                         /*Math.round(track.getSettings().aspectRatio * video.height);*/
                     video.srcObject = stream;
                     video.play();
-                    //mirror.width = video.width;
-                    let rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
-                                            width, height);
-                    let p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
-                    let p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
-                    let src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
-                    let crop = new cv.Mat(rect.height, rect.width, cv.CV_8UC4);
-                    let hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
-                    let mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-                    let mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-                    let dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-                    let cap = new cv.VideoCapture(video);
-                    let lower1 = [0, 50, 50, 0];
-                    let higher1 = [10, 255, 255, 255];
-                    let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
-                    let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
-                    let lower2 = [170, 50, 50, 0];
-                    let higher2 = [180, 255, 255, 255];
-                    let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
-                    let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
-                    let white = new cv.Scalar(255,255,255,255);
-                    let redpix = 0;
-                    
-                    const FPS = 30;
-                    
-                    function processVideo() {
-                        try {
-                            let begin = Date.now();
-                            // start processing.
-                            cap.read(src);
-                            crop = src.roi(rect);
-                            cv.cvtColor(crop, hsv, cv.COLOR_RGB2HSV);
-                            cv.inRange(hsv, low1, high1, mask1);
-                            cv.inRange(hsv, low2, high2, mask2);
-                            cv.bitwise_or(mask1, mask2, dst);
-                            cv.rectangle(src, p0, p1, white);
-                            cv.flip(src, src, 1);
-                            cv.imshow('videoModified', src);
-                            //cv.imshow('canvasOutput', dst);
-                            redpix = cv.countNonZero(dst);
-                            if(redpix > 5) {
-                                if(!alarm) {
-                                  document.getElementById("alert").innerHTML = "Red signal detected";
-                                  audio.play();
-                                  alarm = true;
-                                }
-                            } else {
-                                if(alarm) {
-                                    document.getElementById("alert").innerHTML = "Nothing to report";
-                                    audio.pause();
-                                    audio.currentTime = 0;
-                                    alarm = false;
-                                }
-                            }
-
-                            // schedule the next one.
-                            let delay = 1000/FPS - (Date.now() - begin);
-                            setTimeout(processVideo, delay);
-                        } catch (err) {
-                            console.log(err);
-                        }
-                    };
-                    // schedule the first one.
-                    setTimeout(processVideo, 0);
                 });
             })
             .catch(function(err) {
@@ -148,25 +171,26 @@
 
 
 
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                video.srcObject.getTracks().forEach(track => {
-                    track.stop();
+        window.onblur = () => {
+            video.srcObject.getTracks().forEach(track => {
+                track.stop();
+            });
+            audio.pause();
+            audio.currentTime = 0;
+            alarm = false;
+            clearTimeout();
+        };
+
+        window.onfocus = () => {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                .then(function(stream) {
+                    video.srcObject = stream;
+                    video.play();
+                })
+                .catch(function(err) {
+                    console.log("An error occurred! " + err);
                 });
-                audio.pause();
-                audio.currentTime = 0;
-                alarm = false;
-            } else {
-                navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-                    .then(function(stream) {
-                        video.srcObject = stream;
-                        video.play();
-                    })
-                    .catch(function(err) {
-                        console.log("An error occurred! " + err);
-                    });
-            }
-        });
+        };
     };
 </script>
 </html>
