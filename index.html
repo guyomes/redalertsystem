@@ -49,12 +49,12 @@ src.delete(); dst.delete(); low.delete(); high.delete();
         let mask2 = new cv.Mat(video.height, video.width, cv.CV_8UC1);
         let dst = new cv.Mat(video.height, video.width, cv.CV_8UC1);
         let cap = new cv.VideoCapture(video);
-        let lower1 = [60, 0, 0, 0];
-        let higher1 = [120, 255, 255, 255];
+        let lower1 = [0, 0, 0, 0];
+        let higher1 = [40, 255, 255, 255];
         let low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
         let high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
-        let lower2 = [0, 0, 0, 0];
-        let higher2 = [0, 255, 255, 255];
+        let lower2 = [140, 0, 0, 0];
+        let higher2 = [180, 255, 255, 255];
         let low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
         let high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
         
