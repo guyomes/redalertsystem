@@ -89,6 +89,7 @@ src.delete(); dst.delete(); low.delete(); high.delete();
                 cv.inRange(hsv, low2, high2, mask2);
                 cv.bitwise_or(mask1, mask2, dst);
                 cv.rectangle(src, p0, p1, white);
+                cv.flip(src, src, 1);
                 cv.imshow('videoModified', src);
                 //cv.imshow('canvasOutput', dst);
                 redpix = cv.countNonZero(dst);
