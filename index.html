@@ -23,7 +23,6 @@
   </div>
   <div class="inputoutput">
     <canvas id="videoModified" width="320" height="240"></canvas>
-    <div class="caption">Video input</div>
   </div>
   <p id="alert">Nothing to report</p>
   </div>
@@ -34,17 +33,21 @@
 <script type="text/javascript">
 
     var width = 25;
-    var height = 40;
+    var height = 60;
     var video = document.getElementById("videoInput"); // video is the id of video tag
     var audio = new Audio('alarm.mp3');
     audio.loop = true;
+    var alarm = false;
 
     function update_status(element) {
         if(element.checked) {
             navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                 .then(function(stream) {
+                    stream.getTracks().forEach(track => video.width =
+                        Math.round(track.getSettings().aspectRatio * video.height));
                     video.srcObject = stream;
                     video.play();
+
                 })
                 .catch(function(err) {
                     console.log("An error occurred! " + err);
@@ -54,6 +57,9 @@
             video.srcObject.getTracks().forEach(track => {
                 track.stop();
             });
+            audio.pause();
+            audio.currentTime = 0;
+            alarm = false;
             document.getElementById('status').innerHTML = 'Antenna inactive';
         }
     }
@@ -110,11 +116,18 @@
                 //cv.imshow('canvasOutput', dst);
                 redpix = cv.countNonZero(dst);
                 if(redpix > 5) {
-                    document.getElementById("alert").innerHTML = "Ça va trancher chérie";
-                    audio.play();
+                    if(!alarm) {
+                      document.getElementById("alert").innerHTML = "Red signal detected";
+                      audio.play();
+                      alarm = true;
+                    }
                 } else {
-                    document.getElementById("alert").innerHTML = "Tout va bien";
-                    audio.stop();
+                    if(alarm) {
+                        document.getElementById("alert").innerHTML = "Nothing to report";
+                        audio.pause();
+                        audio.currentTime = 0;
+                        alarm = false;
+                    }
                 }
 
                 // schedule the next one.
@@ -134,6 +147,9 @@
                 video.srcObject.getTracks().forEach(track => {
                     track.stop();
                 });
+                audio.pause();
+                audio.currentTime = 0;
+                alarm = false;
             } else {
                 navigator.mediaDevices.getUserMedia({ video: true, audio: false })
                     .then(function(stream) {
