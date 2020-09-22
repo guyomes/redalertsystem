@@ -26,6 +26,10 @@
     <input type="checkbox" disabled class="custom-control-input" onchange="update_status(this);" id="toggle">
     <label class="custom-control-label" id="status" for="toggle">Deploying antenna...</label>
   </div>
+  <div class="custom-control custom-switch">
+    <input type="checkbox" class="custom-control-input" oninput="update_audio(this);" id="toggle_audio">
+    <label class="custom-control-label" id="status_audio" for="toggle_audio">Audio disabled</label>
+  </div>
   <div>
   <div class="inputoutput" style="display: none">
     <video id="videoInput" height="240" playsinline=true></video>
@@ -46,8 +50,7 @@
     var height = 60;
     var video = document.getElementById("videoInput");
     var mirror = document.getElementById("videoModified");
-    var audio = new Audio('alarm.mp3');
-    audio.loop = true;
+    var audio = new Audio();
     var alarm = false;
 
     var white = new cv.Scalar(255,255,255,255);
@@ -55,6 +58,7 @@
     var p0 = null;
     var p1 = null;
     var src = null;
+    var zeros = null;
     var crop = null;
     var hsv = null;
     var mask1 = null;
@@ -66,8 +70,30 @@
     var low2 = null;
     var high2 = null;
     var redpix = null;
+    var loop = null;
+    var initialized = false;
+    var audio_init = false;
+    var check_state = true;
     const FPS = 30;
         
+    function update_audio(element) {
+        if(!audio_init) {
+            audio.play().then( () => {
+                audio.pause();
+                audio.src = 'alarm.mp3'
+                audio.load();
+                audio.loop = true;
+                audio_init = true;
+            });
+        }
+        if(element.checked) {
+            audio.muted = false;
+            document.getElementById('status_audio').innerHTML = 'Audio enabled';
+        } else {
+            audio.muted = true;
+            document.getElementById('status_audio').innerHTML = 'Audio disabled';
+        }
+    }
 
     function update_status(element) {
         if(element.checked) {
@@ -84,10 +110,17 @@
             video.srcObject.getTracks().forEach(track => {
                 track.stop();
             });
-            audio.pause();
-            audio.currentTime = 0;
+            video.pause();
+            video.srcObject = null;
+            if(audio_init) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
             alarm = false;
-            clearTimeout();
+            clearTimeout(loop);
+            cv.imshow('videoModified', zeros);
+            document.getElementById("alert").innerHTML = "Nothing to report";
+            document.body.style.animation = "";
             document.getElementById('status').innerHTML = 'Antenna inactive';
         }
     }
@@ -109,16 +142,20 @@
             redpix = cv.countNonZero(dst);
             if(redpix > 5) {
                 if(!alarm) {
-                  document.getElementById("alert").innerHTML = "Red signal detected";
-                  audio.play();
-                  alarm = true;
-                  document.body.style.animation = "changeColor 1s infinite alternate";
+                    document.getElementById("alert").innerHTML = "Red signal detected";
+                    if(audio_init) {
+                        audio.play();
+                    }
+                    alarm = true;
+                    document.body.style.animation = "changeColor 1s infinite alternate";
                 }
             } else {
                 if(alarm) {
                     document.getElementById("alert").innerHTML = "Nothing to report";
-                    audio.pause();
-                    audio.currentTime = 0;
+                    if(audio_init) {
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }
                     alarm = false;
                     document.body.style.animation = "";
                 }
@@ -126,83 +163,81 @@
 
             // schedule the next one.
             let delay = 1000/FPS - (Date.now() - begin);
-            setTimeout(processVideo, delay);
+            loop = setTimeout(processVideo, delay);
         } catch (err) {
             console.log(err);
         }
     };
 
     video.onloadedmetadata = (event) => {
-        document.getElementById('toggle').disabled = false;
-        document.getElementById('toggle').checked = true;
-        document.getElementById('status').innerHTML = 'Antenna active';
-        document.getElementById("alert").style.visibility = "visible";
-        video.width = Math.round(video.height * video.videoWidth/video.videoHeight);
-        mirror.height = video.height;
-        mirror.width = video.width;
-        let lower1 = [0, 50, 50, 0];
-        let higher1 = [10, 255, 255, 255];
-        let lower2 = [170, 50, 50, 0];
-        let higher2 = [180, 255, 255, 255];
-        p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
-        p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
-        rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
-                                width, height);
-        src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
-        hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
-        mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
-        cap = new cv.VideoCapture(video);
-        low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
-        high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
-        low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
-        high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
-        redpix = 0;
+        if( !initialized ) {
+            //document.getElementById('status').innerHTML = 'Antenna active';
+            document.getElementById("alert").style.visibility = "visible";
+            video.width = Math.round(video.height * video.videoWidth/video.videoHeight);
+            mirror.height = video.height;
+            mirror.width = video.width;
+            let lower1 = [0, 50, 50, 0];
+            let higher1 = [10, 255, 255, 255];
+            let lower2 = [170, 50, 50, 0];
+            let higher2 = [180, 255, 255, 255];
+            p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
+            p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
+            rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
+                                    width, height);
+            src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+            zeros = new cv.Mat.zeros(video.height, video.width, cv.CV_8UC4);
+            hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
+            mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            cap = new cv.VideoCapture(video);
+            low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
+            high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
+            low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
+            high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
+            redpix = 0;
+            initialized = true;
+        }
         
         // schedule the first one.
-        setTimeout(processVideo, 0);
+        loop = setTimeout(processVideo, 0);
     };
 
     cv['onRuntimeInitialized'] = () => {
-        //let output = document.getElementById("canvasOutput"); // video is the id of video tag
-        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-            .then(function(stream) {
-                stream.getTracks().forEach(track => {
-                    //video.width = Math.round(track.getSettings().aspectRatio * video.height);
-                    //console.log(Math.round(track.getSettings().aspectRatio * video.height));
-                    //video.getContext('2d').canvas.width = 100;
-                        /*Math.round(track.getSettings().aspectRatio * video.height);*/
-                    video.srcObject = stream;
-                    video.play();
-                });
-            })
-            .catch(function(err) {
-                console.log("An error occurred! " + err);
-            });
+        document.getElementById('toggle').disabled = false;
+        document.getElementById('toggle').checked = true;
+        document.getElementById('toggle').onchange();
+        ////let output = document.getElementById("canvasOutput"); // video is the id of video tag
+        //navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+        //    .then(function(stream) {
+        //        stream.getTracks().forEach(track => {
+        //            //video.width = Math.round(track.getSettings().aspectRatio * video.height);
+        //            //console.log(Math.round(track.getSettings().aspectRatio * video.height));
+        //            //video.getContext('2d').canvas.width = 100;
+        //                /*Math.round(track.getSettings().aspectRatio * video.height);*/
+        //            video.srcObject = stream;
+        //            video.play();
+        //        });
+        //    })
+        //    .catch(function(err) {
+        //        console.log("An error occurred! " + err);
+        //    });
+    };
 
+    window.onblur = () => {
+        check_state = document.getElementById('toggle').checked;
+        if(check_state) {
+            document.getElementById('toggle').checked = false;
+            document.getElementById('toggle').onchange();
+        }
+    };
 
+    window.onfocus = () => {
+        if(check_state) {
+            document.getElementById('toggle').checked = true;
+            document.getElementById('toggle').onchange();
+        }
 
-        window.onblur = () => {
-            video.srcObject.getTracks().forEach(track => {
-                track.stop();
-            });
-            audio.pause();
-            audio.currentTime = 0;
-            alarm = false;
-            clearTimeout();
-        };
-
-        window.onfocus = () => {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-                .then(function(stream) {
-                    video.srcObject = stream;
-                    video.play();
-                })
-                .catch(function(err) {
-                    console.log("An error occurred! " + err);
-                });
-        };
     };
 </script>
 </html>
