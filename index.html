@@ -50,7 +50,7 @@
     var height = 60;
     var video = document.getElementById("videoInput");
     var mirror = document.getElementById("videoModified");
-    var audio = new Audio();
+    var audio = new Audio("alarm.mp3");
     var alarm = false;
 
     var white = new cv.Scalar(255,255,255,255);
@@ -78,12 +78,14 @@
         
     function update_audio(element) {
         if(!audio_init) {
+            audio.muted = true;
             audio.play().then( () => {
                 audio.pause();
-                audio.src = 'alarm.mp3'
-                audio.load();
                 audio.loop = true;
                 audio_init = true;
+            })
+            .catch(function(err) {
+                console.log("An error occurred! " + err);
             });
         }
         if(element.checked) {
@@ -144,6 +146,7 @@
                 if(!alarm) {
                     document.getElementById("alert").innerHTML = "Red signal detected";
                     if(audio_init) {
+                        console.log(audio.src);
                         audio.play();
                     }
                     alarm = true;
