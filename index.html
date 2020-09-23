@@ -23,7 +23,7 @@
 <body>
   <h2>Red Alert System</h2>
   <div class="custom-control custom-switch">
-    <input type="checkbox" disabled class="custom-control-input" onchange="update_status(this);" id="toggle">
+    <input type="checkbox" disabled class="custom-control-input" oninput="update_status(this);" id="toggle">
     <label class="custom-control-label" id="status" for="toggle">Deploying antenna...</label>
   </div>
   <div class="custom-control custom-switch">
@@ -38,7 +38,14 @@
   <div class="inputoutput">
     <canvas id="videoModified"></canvas>
   </div>
-  <p id="alert" style="visibility: hidden">Nothing to report</p>
+  <p id="alert" class="text-center" style="visibility: hidden">Nothing to report</p>
+  </div>
+
+  <div class="text-center" style="width: 320px" id="credit">
+      <p class="small text-center"> 
+          <a href="https://github.com/guyomes/redalertsystem" class="text-dark">Source</a> |
+          <a href="https://github.com/guyomes/redalertsystem/issues" class="text-dark">Issues</a>
+      </p>
   </div>
 </body>
 
@@ -46,6 +53,7 @@
 <script src="opencv.js" type="text/javascript"></script>
 <script type="text/javascript">
 
+    document.getElementById('toggle').checked = false;
     var width = 25;
     var height = 60;
     var video = document.getElementById("videoInput");
@@ -73,7 +81,8 @@
     var loop = null;
     var initialized = false;
     var audio_init = false;
-    var check_state = true;
+    var video_on = false;
+    var video_was_on = false;
     const FPS = 30;
         
     function update_audio(element) {
@@ -97,29 +106,32 @@
         }
     }
 
+    function load_video() {
+        navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+            .then(function(stream) {
+                video.srcObject = stream;
+            })
+            .catch(function(err) {
+                console.log("An error occurred! " + err);
+            });
+    };
+
     function update_status(element) {
-        if(element.checked) {
-            navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-                .then(function(stream) {
-                    video.srcObject = stream;
-                    video.play();
-                })
-                .catch(function(err) {
-                    console.log("An error occurred! " + err);
-                });
-            document.getElementById('status').innerHTML = 'Antenna active';
+        if(!video_on) {
+            load_video();
         } else {
             video.srcObject.getTracks().forEach(track => {
                 track.stop();
             });
             video.pause();
             video.srcObject = null;
+            video_on = false;
             if(audio_init) {
                 audio.pause();
                 audio.currentTime = 0;
             }
             alarm = false;
-            clearTimeout(loop);
+            window.clearTimeout(loop);
             cv.imshow('videoModified', zeros);
             document.getElementById("alert").innerHTML = "Nothing to report";
             document.body.style.animation = "";
@@ -146,7 +158,6 @@
                 if(!alarm) {
                     document.getElementById("alert").innerHTML = "Red signal detected";
                     if(audio_init) {
-                        console.log(audio.src);
                         audio.play();
                     }
                     alarm = true;
@@ -166,7 +177,7 @@
 
             // schedule the next one.
             let delay = 1000/FPS - (Date.now() - begin);
-            loop = setTimeout(processVideo, delay);
+            loop = window.setTimeout(processVideo, delay);
         } catch (err) {
             console.log(err);
         }
@@ -175,8 +186,10 @@
     video.onloadedmetadata = (event) => {
         if( !initialized ) {
             //document.getElementById('status').innerHTML = 'Antenna active';
-            document.getElementById("alert").style.visibility = "visible";
             video.width = Math.round(video.height * video.videoWidth/video.videoHeight);
+            document.getElementById("alert").style.visibility = "visible";
+            document.getElementById("alert").style.width = video.width + "px";
+            document.getElementById("credit").style.width = video.width + "px";
             mirror.height = video.height;
             mirror.width = video.width;
             let lower1 = [0, 50, 50, 0];
@@ -200,45 +213,37 @@
             high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
             redpix = 0;
             initialized = true;
+            video.play();
+            // schedule the first one.
+            document.getElementById('toggle').disabled = false;
+            document.getElementById('toggle').checked = true;
+        } else {
+            video.play();
         }
-        
         // schedule the first one.
-        loop = setTimeout(processVideo, 0);
+        loop = window.setTimeout(processVideo, 0);
+        document.getElementById('status').innerHTML = 'Antenna active';
+        video_on = true;
     };
 
     cv['onRuntimeInitialized'] = () => {
-        document.getElementById('toggle').disabled = false;
-        document.getElementById('toggle').checked = true;
-        document.getElementById('toggle').onchange();
-        ////let output = document.getElementById("canvasOutput"); // video is the id of video tag
-        //navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-        //    .then(function(stream) {
-        //        stream.getTracks().forEach(track => {
-        //            //video.width = Math.round(track.getSettings().aspectRatio * video.height);
-        //            //console.log(Math.round(track.getSettings().aspectRatio * video.height));
-        //            //video.getContext('2d').canvas.width = 100;
-        //                /*Math.round(track.getSettings().aspectRatio * video.height);*/
-        //            video.srcObject = stream;
-        //            video.play();
-        //        });
-        //    })
-        //    .catch(function(err) {
-        //        console.log("An error occurred! " + err);
-        //    });
+        load_video();
     };
 
     window.onblur = () => {
-        check_state = document.getElementById('toggle').checked;
-        if(check_state) {
+        if(video_on) {
+            video_was_on = true;
             document.getElementById('toggle').checked = false;
-            document.getElementById('toggle').onchange();
+            document.getElementById('toggle').oninput();
+        } else {
+            video_was_on = false;
         }
     };
 
     window.onfocus = () => {
-        if(check_state) {
+        if(video_was_on) {
             document.getElementById('toggle').checked = true;
-            document.getElementById('toggle').onchange();
+            document.getElementById('toggle').oninput();
         }
 
     };
