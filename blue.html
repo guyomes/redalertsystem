@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <title>Red Alert System</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" integrity="sha384-JcKb8q3iqJ61gNV9KGb8thSsNjpSL0n8PARn9HuZOnIxN0hoP+VmmDGMN5t9UJ0Z" crossorigin="anonymous">
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js" integrity="sha384-9/reFTGAW83EW2RDu2S0VKaIzap3H66lZH81PoYlFhbGU+6BZp6G7niu735Sk7lN" crossorigin="anonymous"></script>
+  <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js" integrity="sha384-B4gt1jrGC7Jh4AgTPSdUtOBvfO8shuf57BaghqFfPlYxofvL8/KUEfYiJOMMV+rV" crossorigin="anonymous"></script>
+  <style>
+  @keyframes changeColor {
+      from {
+          background-color: #FFFFFF;
+      }
+      to {
+          background-color: #B73239;
+      }
+  }
+  </style>
+</head>
+
+<body>
+  <h2>Red Alert System</h2>
+  <div class="custom-control custom-switch">
+    <input type="checkbox" disabled class="custom-control-input" oninput="update_status(this);" id="toggle">
+    <label class="custom-control-label" id="status" for="toggle">Deploying antenna...</label>
+  </div>
+  <div class="custom-control custom-switch">
+    <input type="checkbox" class="custom-control-input" oninput="update_audio(this);" id="toggle_audio">
+    <label class="custom-control-label" id="status_audio" for="toggle_audio">Audio disabled</label>
+  </div>
+  <div>
+  <div class="inputoutput" style="display: none">
+    <video id="videoInput" height="240" playsinline=true></video>
+    <div class="caption">Raw video</div>
+  </div>
+  <div class="inputoutput">
+    <canvas id="videoModified"></canvas>
+  </div>
+  <p id="alert" class="text-center" style="visibility: hidden">Nothing to report</p>
+  </div>
+
+  <div class="text-center" style="width: 320px" id="credit">
+      <p class="small text-center"> 
+          <a href="https://github.com/guyomes/redalertsystem" class="text-dark">Source</a> |
+          <a href="https://github.com/guyomes/redalertsystem/issues" class="text-dark">Issues</a>
+      </p>
+  </div>
+</body>
+
+<!--<script src="https://webrtc.github.io/adapter/adapter-latest.js"
+    type="text/javascript"></script>-->
+<script src="opencv.js" type="text/javascript"></script>
+<script type="text/javascript">
+
+    document.getElementById('toggle').checked = false;
+    var width = 25;
+    var height = 60;
+    var video = document.getElementById("videoInput");
+    var mirror = document.getElementById("videoModified");
+    var audio = new Audio("alarm.mp3");
+    var alarm = false;
+
+    var white = new cv.Scalar(255,255,255,255);
+    var rect = null;
+    var p0 = null;
+    var p1 = null;
+    var src = null;
+    var zeros = null;
+    var crop = null;
+    var hsv = null;
+    var mask1 = null;
+    var mask2 = null;
+    var dst = null;
+    var cap = null;
+    var low1 = null;
+    var high1 = null;
+    var low2 = null;
+    var high2 = null;
+    var redpix = null;
+    var loop = null;
+    var initialized = false;
+    var audio_init = false;
+    var video_on = false;
+    var video_was_on = false;
+    var flip = true;
+    const FPS = 30;
+        
+    function update_audio(element) {
+        if(!audio_init) {
+            audio.muted = true;
+            audio.play().then( () => {
+                audio.pause();
+                audio.loop = true;
+                audio_init = true;
+            })
+            .catch(function(err) {
+                console.log("An error occurred! " + err);
+            });
+        }
+        if(element.checked) {
+            audio.muted = false;
+            document.getElementById('status_audio').innerHTML = 'Audio enabled';
+        } else {
+            audio.muted = true;
+            document.getElementById('status_audio').innerHTML = 'Audio disabled';
+        }
+    }
+
+    function load_video(type, flipflag) {
+        navigator.mediaDevices.getUserMedia({ video: {facingMode: type}, audio: false })
+            .then(function(stream) {
+                video.srcObject = stream;
+                flip = flipflag;
+            })
+            .catch(function(err) {
+                if (type.exact == "environment") {
+                    load_video("user", true);
+                } else {
+                    console.log("An error occurred! " + err);
+                }
+            });
+    };
+
+    function update_status(element) {
+        if(!video_on) {
+            load_video({exact: "environment"}, false);
+        } else {
+            video.srcObject.getTracks().forEach(track => {
+                track.stop();
+            });
+            video.pause();
+            video.srcObject = null;
+            video_on = false;
+            if(audio_init) {
+                audio.pause();
+                audio.currentTime = 0;
+            }
+            alarm = false;
+            window.clearTimeout(loop);
+            cv.imshow('videoModified', zeros);
+            document.getElementById("alert").innerHTML = "Nothing to report";
+            document.body.style.animation = "";
+            document.getElementById('status').innerHTML = 'Antenna inactive';
+        }
+    }
+
+    function processVideo() {
+        try {
+            let begin = Date.now();
+            // start processing.
+            cap.read(src);
+            let crop = src.roi(rect);
+            cv.cvtColor(crop, hsv, cv.COLOR_RGB2HSV);
+            cv.inRange(hsv, low1, high1, mask1);
+            cv.inRange(hsv, low2, high2, mask2);
+            cv.bitwise_or(mask1, mask2, dst);
+            cv.rectangle(src, p0, p1, white);
+            if(flip) {
+                cv.flip(src, src, 1);
+            }
+            cv.imshow('videoModified', src);
+            //cv.imshow('canvasOutput', dst);
+            redpix = cv.countNonZero(dst);
+            if(redpix > 5) {
+                if(!alarm) {
+                    document.getElementById("alert").innerHTML = "Red signal detected";
+                    if(audio_init) {
+                        audio.play();
+                    }
+                    alarm = true;
+                    document.body.style.animation = "changeColor 1s infinite alternate";
+                }
+            } else {
+                if(alarm) {
+                    document.getElementById("alert").innerHTML = "Nothing to report";
+                    if(audio_init) {
+                        audio.pause();
+                        audio.currentTime = 0;
+                    }
+                    alarm = false;
+                    document.body.style.animation = "";
+                }
+            }
+
+            // schedule the next one.
+            let delay = 1000/FPS - (Date.now() - begin);
+            loop = window.setTimeout(processVideo, delay);
+        } catch (err) {
+            console.log(err);
+        }
+    };
+
+    video.onloadedmetadata = (event) => {
+        if( !initialized ) {
+            //document.getElementById('status').innerHTML = 'Antenna active';
+            video.width = Math.round(video.height * video.videoWidth/video.videoHeight);
+            document.getElementById("alert").style.visibility = "visible";
+            document.getElementById("alert").style.width = video.width + "px";
+            document.getElementById("credit").style.width = video.width + "px";
+            mirror.height = video.height;
+            mirror.width = video.width;
+            let lower1 = [110, 50, 50, 0];
+            let higher1 = [120, 255, 255, 255];
+            let lower2 = [120, 50, 50, 0];
+            let higher2 = [130, 255, 255, 255];
+            p0 = new cv.Point((video.width-width)/2, (video.height-height)/2);
+            p1 = new cv.Point((video.width+width)/2, (video.height+height)/2);
+            rect = new cv.Rect((video.width-width)/2, (video.height-height)/2,
+                                    width, height);
+            src = new cv.Mat(video.height, video.width, cv.CV_8UC4);
+            zeros = new cv.Mat.zeros(video.height, video.width, cv.CV_8UC4);
+            hsv = new cv.Mat(rect.height, rect.width, cv.CV_8UC3);
+            mask1 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            mask2 = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            dst = new cv.Mat(rect.height, rect.width, cv.CV_8UC1);
+            cap = new cv.VideoCapture(video);
+            low1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower1);
+            high1 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher1);
+            low2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), lower2);
+            high2 = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), higher2);
+            redpix = 0;
+            initialized = true;
+            video.play();
+            // schedule the first one.
+            document.getElementById('toggle').disabled = false;
+            document.getElementById('toggle').checked = true;
+        } else {
+            video.play();
+        }
+        // schedule the first one.
+        loop = window.setTimeout(processVideo, 0);
+        document.getElementById('status').innerHTML = 'Antenna active';
+        video_on = true;
+    };
+
+    cv['onRuntimeInitialized'] = () => {
+        load_video({exact: "environment"}, false);
+    };
+
+    window.onblur = () => {
+        if(video_on) {
+            video_was_on = true;
+            document.getElementById('toggle').checked = false;
+            document.getElementById('toggle').oninput();
+        } else {
+            video_was_on = false;
+        }
+    };
+
+    window.onfocus = () => {
+        if(video_was_on) {
+            document.getElementById('toggle').checked = true;
+            document.getElementById('toggle').oninput();
+        }
+
+    };
+</script>
+</html>
